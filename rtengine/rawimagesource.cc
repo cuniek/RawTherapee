@@ -2039,12 +2039,20 @@ void RawImageSource::demosaic(const RAWParams &raw)
                     if((bayerParams.pixelShiftMotion > 0 || bayerParams.pixelShiftAutomatic) && numFrames == 4) {
                         if(bayerParams.pixelShiftMedian) { // We need the amaze demosaiced frames for motion correction
                             if(!bayerParams.pixelShiftMedian3) {
-                                amaze_demosaic_RT (0, 0, W, H, *(rawDataFrames[0]), red, green, blue);
+                                if(bayerParams.pixelShiftLmmse) {
+                                    lmmse_interpolate_omp(W, H, *(rawDataFrames[0]), red, green, blue, raw.bayersensor.lmmse_iterations);
+                                } else {
+                                    amaze_demosaic_RT (0, 0, W, H, *(rawDataFrames[0]), red, green, blue);
+                                }
                                 multi_array2D<float,3> redTmp(W,H);
                                 multi_array2D<float,3> greenTmp(W,H);
                                 multi_array2D<float,3> blueTmp(W,H);
                                 for(int i=0;i<3;i++) {
-                                    amaze_demosaic_RT (0, 0, W, H, *(rawDataFrames[i+1]), redTmp[i], greenTmp[i], blueTmp[i]);
+                                    if(bayerParams.pixelShiftLmmse) {
+                                        lmmse_interpolate_omp(W, H, *(rawDataFrames[i+1]), redTmp[i], greenTmp[i], blueTmp[i], raw.bayersensor.lmmse_iterations);
+                                    } else {
+                                        amaze_demosaic_RT (0, 0, W, H, *(rawDataFrames[i+1]), redTmp[i], greenTmp[i], blueTmp[i]);
+                                    }
                                 }
                 #pragma omp parallel for schedule(dynamic,16)
                                 for(int i=border;i<H-border;i++) {
@@ -2064,7 +2072,11 @@ void RawImageSource::demosaic(const RAWParams &raw)
                                 multi_array2D<float,3> blueTmp(W,H);
                                 for(int i=0, frameIndex = 0;i<4;++i) {
                                     if(i != currFrame) {
-                                        amaze_demosaic_RT (0, 0, W, H, *(rawDataFrames[i]), redTmp[frameIndex], greenTmp[frameIndex], blueTmp[frameIndex]);
+                                        if(bayerParams.pixelShiftLmmse) {
+                                            lmmse_interpolate_omp(W, H, *(rawDataFrames[i]), redTmp[frameIndex], greenTmp[frameIndex], blueTmp[frameIndex], raw.bayersensor.lmmse_iterations);
+                                        } else {
+                                            amaze_demosaic_RT (0, 0, W, H, *(rawDataFrames[i]), redTmp[frameIndex], greenTmp[frameIndex], blueTmp[frameIndex]);
+                                        }
                                         ++frameIndex;
                                     }
                                 }
@@ -2124,10 +2136,18 @@ void RawImageSource::demosaic(const RAWParams &raw)
                                 }
                             }
                         } else {
-                            amaze_demosaic_RT (0, 0, W, H, rawData, red, green, blue); // for non pixelshift files use amaze if pixelshift is selected. We need it also for motion correction
+                            if(bayerParams.pixelShiftLmmse) {
+                                lmmse_interpolate_omp(W, H, rawData, red, green, blue, raw.bayersensor.lmmse_iterations);
+                            } else {
+                                amaze_demosaic_RT (0, 0, W, H, rawData, red, green, blue); // for non pixelshift files use amaze if pixelshift is selected. We need it also for motion correction
+                            }
                         }
                     } else {
-                        amaze_demosaic_RT (0, 0, W, H, rawData, red, green, blue); // for non pixelshift files use amaze if pixelshift is selected. We need it also for motion correction
+                        if(bayerParams.pixelShiftLmmse) {
+                            lmmse_interpolate_omp(W, H, rawData, red, green, blue, raw.bayersensor.lmmse_iterations);
+                        } else {
+                            amaze_demosaic_RT (0, 0, W, H, rawData, red, green, blue); // for non pixelshift files use amaze if pixelshift is selected. We need it also for motion correction
+                        }
                     }
                 }
                 pixelshift(0, 0, W, H, bayerParams, currFrame, ri->get_model(), raw.expos);
@@ -2139,7 +2159,7 @@ void RawImageSource::demosaic(const RAWParams &raw)
         } else if (raw.bayersensor.method == RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::igv]) {
             igv_interpolate(W, H);
         } else if (raw.bayersensor.method == RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::lmmse]) {
-            lmmse_interpolate_omp(W, H, raw.bayersensor.lmmse_iterations);
+            lmmse_interpolate_omp(W, H, rawData, red, green, blue, raw.bayersensor.lmmse_iterations);
         } else if (raw.bayersensor.method == RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::fast] ) {
             fast_demosaic (0, 0, W, H);
         } else if (raw.bayersensor.method == RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::mono] ) {
@@ -5437,6 +5457,36 @@ void RawImageSource::init ()
 
         phaseOneIccCurve = new DiagonalCurve(cForwardPoints, CURVES_MIN_POLY_POINTS);
         phaseOneIccCurveInv = new DiagonalCurve(cInversePoints, CURVES_MIN_POLY_POINTS);
+    }
+}
+
+void RawImageSource::getRawValues(int x, int y, int rotate, int &R, int &G, int &B)
+{
+    int xnew = x + border;
+    int ynew = y + border;
+    rotate += ri->get_rotateDegree();
+    rotate %= 360;
+    if (rotate == 90) {
+        std::swap(xnew,ynew);
+        ynew = H - 1 - ynew;
+    } else if (rotate == 180) {
+        xnew = W - 1 - xnew;
+        ynew = H - 1 - ynew;
+    } else if (rotate == 270) {
+        std::swap(xnew,ynew);
+        ynew = H - 1 - ynew;
+        xnew = W - 1 - xnew;
+        ynew = H - 1 - ynew;
+    }
+
+    int c = ri->getSensorType() == ST_FUJI_XTRANS ? ri->XTRANSFC(ynew,xnew) : ri->FC(ynew,xnew);
+    int val = round(rawData[ynew][xnew] / scale_mul[c]);
+    if(c == 0) {
+        R = val; G = 0; B = 0;
+    } else if(c == 2) {
+        R = 0; G = 0; B = val;
+    } else {
+        R = 0; G = val; B = 0;
     }
 }
 

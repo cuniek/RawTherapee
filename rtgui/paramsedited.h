@@ -715,6 +715,7 @@ public:
         bool pixelShiftBlur;
         bool pixelShiftSmooth;
         bool pixelShiftExp0;
+        bool pixelShiftLmmse;
         bool pixelShiftNonGreenCross;
         bool pixelShiftNonGreenCross2;
         bool pixelShiftNonGreenAmaze;
