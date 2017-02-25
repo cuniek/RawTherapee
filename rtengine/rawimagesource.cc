@@ -2022,7 +2022,7 @@ void RawImageSource::demosaic(const RAWParams &raw)
         } else if (raw.bayersensor.method == RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::ahd] ) {
             ahd_demosaic (0, 0, W, H);
         } else if (raw.bayersensor.method == RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::amaze] ) {
-            amaze_demosaic_RT (0, 0, W, H, rawData, red, green, blue);
+            amaze_demosaic_RT (0, 0, W, H, rawData, red, green, blue, raw.bayersensor.amazeExp0);
         } else if (raw.bayersensor.method == RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::pixelshift] ) {
             if(numFrames != 4) { // fallback for non pixelshift files
                 amaze_demosaic_RT (0, 0, W, H, rawData, red, green, blue);

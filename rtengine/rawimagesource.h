@@ -237,7 +237,7 @@ protected:
     void jdl_interpolate_omp();
     void igv_interpolate(int winw, int winh);
     void lmmse_interpolate_omp(int winw, int winh, array2D<float> &rawData, array2D<float> &red, array2D<float> &green, array2D<float> &blue, int iterations);
-    void amaze_demosaic_RT(int winx, int winy, int winw, int winh, array2D<float> &rawData, array2D<float> &red, array2D<float> &green, array2D<float> &blue);//Emil's code for AMaZE
+    void amaze_demosaic_RT(int winx, int winy, int winw, int winh, array2D<float> &rawData, array2D<float> &red, array2D<float> &green, array2D<float> &blue, bool amazeExp0 = false);//Emil's code for AMaZE
     void fast_demosaic(int winx, int winy, int winw, int winh );//Emil's code for fast demosaicing
     void dcb_demosaic(int iterations, bool dcb_enhance);
     void ahd_demosaic(int winx, int winy, int winw, int winh);

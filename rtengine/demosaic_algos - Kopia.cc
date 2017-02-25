@@ -3325,54 +3325,89 @@ void RawImageSource::fill_border( float (*cache )[4], int border, int x0, int y0
         }
     }
 }
-
 // saves red and blue
-
-// change buffer[3] -> buffer[2],  possibly to buffer[1] if splitted 
-// into two loops, one for R and another for B, could also be smaller because 
-// there is no need for green pixels pass
-// this would decrease the amount of needen memory
-// from megapixels*2 records to megapixels*0.5
-// also don't know if float is needed as data is 1-65536 integer (I believe!!)
 void RawImageSource::copy_to_buffer( float (*buffer)[3], float (*image)[4])
 {
-		
     for (int indx = 0; indx < CACHESIZE * CACHESIZE; indx++) {
         buffer[indx][0] = image[indx][0]; //R
-        buffer[indx][1] = image[indx][2]; //B
+        buffer[indx][2] = image[indx][2]; //B
     }
 }
 
 // restores red and blue
-
-// other comments like in copy_to_buffer
 void RawImageSource::restore_from_buffer(float (*image)[4], float (*buffer)[3])
 {
     for (int indx = 0; indx < CACHESIZE * CACHESIZE; indx++) {
         image[indx][0] = buffer[indx][0]; //R
-        image[indx][2] = buffer[indx][1]; //B
+        image[indx][2] = buffer[indx][2]; //B
     }
 }
 
 // First pass green interpolation
-
-// remove entirely: bufferH and bufferV
 void RawImageSource::dcb_hid(float (*image)[4], float (*bufferH)[3], float (*bufferV)[3], int x0, int y0)
 {
-    const int u = CACHESIZE;
-    int rowMin, colMin, rowMax, colMax, c;
+    const int u = CACHESIZE, v = 2 * CACHESIZE;
+    int rowMin, colMin, rowMax, colMax;
     dcb_initTileLimits(colMin, rowMin, colMax, rowMax, x0, y0, 2);
 
-	
-// simple green bilinear in R and B pixels
+    // green pixels
+    for (int row = rowMin; row < rowMax; row++) {
+        for (int col = colMin + (FC(y0 - TILEBORDER + row, x0 - TILEBORDER + colMin) & 1), indx = row * CACHESIZE + col; col < colMax; col += 2, indx += 2) {
+            assert(indx - u >= 0 && indx + u < u * u);
+            bufferH[indx][1] = (image[indx - 1][1] + image[indx + 1][1]) * 0.5f;
+            bufferV[indx][1] = (image[indx + u][1] + image[indx - u][1]) * 0.5f;
+        }
+    }
+
+    // red in blue pixel, blue in red pixel
     for (int row = rowMin; row < rowMax; row++)
-        for (int col = colMin + (FC(y0 - TILEBORDER + row, x0 - TILEBORDER + colMin) & 1), indx = row * CACHESIZE + col, c = FC(y0 - TILEBORDER + row, x0 - TILEBORDER + col); col < colMax; col += 2, indx += 2) {
+        for (int col = colMin + (FC(y0 - TILEBORDER + row, x0 - TILEBORDER + colMin) & 1), indx = row * CACHESIZE + col, c = 2 - FC(y0 - TILEBORDER + row, x0 - TILEBORDER + col); col < colMax; col += 2, indx += 2) {
             assert(indx - u - 1 >= 0 && indx + u + 1 < u * u && c >= 0 && c < 3);
 
-			image[indx][1] = 0.25*(image[indx-1][1]+image[indx+1][1]+image[indx-u][1]+image[indx+u][1]);
-			
-		}	
+            bufferH[indx][c] = ( 4.f * bufferH[indx][1]
+                                 - bufferH[indx + u + 1][1] - bufferH[indx + u - 1][1] - bufferH[indx - u + 1][1] - bufferH[indx - u - 1][1]
+                                 + image[indx + u + 1][c] + image[indx + u - 1][c] + image[indx - u + 1][c] + image[indx - u - 1][c] ) * 0.25f;
+            bufferV[indx][c] = ( 4.f * bufferV[indx][1]
+                                 - bufferV[indx + u + 1][1] - bufferV[indx + u - 1][1] - bufferV[indx - u + 1][1] - bufferV[indx - u - 1][1]
+                                 + image[indx + u + 1][c] + image[indx + u - 1][c] + image[indx - u + 1][c] + image[indx - u - 1][c] ) * 0.25f;
+        }
 
+    // red or blue in green pixels
+    for (int row = rowMin; row < rowMax; row++)
+        for (int col = colMin + (FC(y0 - TILEBORDER + row, x0 - TILEBORDER + colMin + 1) & 1), indx = row * CACHESIZE + col, c = FC(y0 - TILEBORDER + row, x0 - TILEBORDER + col + 1), d = 2 - c; col < colMax; col += 2, indx += 2) {
+            assert(indx - u >= 0 && indx + u < u * u && c >= 0 && c < 3 && d >= 0 && d < 3);
+            bufferH[indx][c] = (image[indx + 1][c] + image[indx - 1][c]) * 0.5f;
+            bufferH[indx][d] = (2.f * bufferH[indx][1] - bufferH[indx + u][1] - bufferH[indx - u][1] + image[indx + u][d] + image[indx - u][d]) * 0.5f;
+            bufferV[indx][c] = (2.f * bufferV[indx][1] - bufferV[indx + 1][1] - bufferV[indx - 1][1] + image[indx + 1][c] + image[indx - 1][c]) * 0.5f;
+            bufferV[indx][d] = (image[indx + u][d] + image[indx - u][d]) * 0.5f;
+        }
+
+    // Decide green pixels
+    for (int row = rowMin; row < rowMax; row++)
+        for (int col = colMin + (FC(y0 - TILEBORDER + row, x0 - TILEBORDER + colMin) & 1), indx = row * CACHESIZE + col, c = FC(y0 - TILEBORDER + row, x0 - TILEBORDER + col), d = 2 - c; col < colMax; col += 2, indx += 2) {
+            float current =  max(image[indx + v][c], image[indx - v][c], image[indx - 2][c], image[indx + 2][c]) -
+                             min(image[indx + v][c], image[indx - v][c], image[indx - 2][c], image[indx + 2][c]) +
+                             max(image[indx + 1 + u][d], image[indx + 1 - u][d], image[indx - 1 + u][d], image[indx - 1 - u][d]) -
+                             min(image[indx + 1 + u][d], image[indx + 1 - u][d], image[indx - 1 + u][d], image[indx - 1 - u][d]);
+
+            float currentH = max(bufferH[indx + v][d], bufferH[indx - v][d], bufferH[indx - 2][d], bufferH[indx + 2][d]) -
+                             min(bufferH[indx + v][d], bufferH[indx - v][d], bufferH[indx - 2][d], bufferH[indx + 2][d]) +
+                             max(bufferH[indx + 1 + u][c], bufferH[indx + 1 - u][c], bufferH[indx - 1 + u][c], bufferH[indx - 1 - u][c]) -
+                             min(bufferH[indx + 1 + u][c], bufferH[indx + 1 - u][c], bufferH[indx - 1 + u][c], bufferH[indx - 1 - u][c]);
+
+            float currentV = max(bufferV[indx + v][d], bufferV[indx - v][d], bufferV[indx - 2][d], bufferV[indx + 2][d]) -
+                             min(bufferV[indx + v][d], bufferV[indx - v][d], bufferV[indx - 2][d], bufferV[indx + 2][d]) +
+                             max(bufferV[indx + 1 + u][c], bufferV[indx + 1 - u][c], bufferV[indx - 1 + u][c], bufferV[indx - 1 - u][c]) -
+                             min(bufferV[indx + 1 + u][c], bufferV[indx + 1 - u][c], bufferV[indx - 1 + u][c], bufferV[indx - 1 - u][c]);
+
+            assert(indx >= 0 && indx < u * u);
+
+            if (ABS(current - currentH) < ABS(current - currentV)) {
+                image[indx][1] = bufferH[indx][1];
+            } else {
+                image[indx][1] = bufferV[indx][1];
+            }
+        }
 }
 
 // missing colors are interpolated
@@ -3421,9 +3456,6 @@ void RawImageSource::dcb_hid2(float (*image)[4], int x0, int y0)
 // 1 = vertical
 // 0 = horizontal
 // saved in image[][3]
-
-// seems at least 2 persons implemented some code, as this one has different coding style, could be unified
-// I don't know if *pix is faster than a loop working on image[] directly 
 void RawImageSource::dcb_map(float (*image)[4], int x0, int y0)
 {
     const int u = 4 * CACHESIZE;
@@ -3465,8 +3497,6 @@ void RawImageSource::dcb_correction(float (*image)[4], int x0, int y0)
 }
 
 // R and B smoothing using green contrast, all pixels except 2 pixel wide border
-
-// again code with *pix, is this kind of calculating faster in C, than this what was commented?
 void RawImageSource::dcb_pp(float (*image)[4], int x0, int y0)
 {
     const int u = CACHESIZE;
@@ -3551,37 +3581,38 @@ void RawImageSource::dcb_refinement(float (*image)[4], int x0, int y0)
     int rowMin, colMin, rowMax, colMax;
     dcb_initTileLimits(colMin, rowMin, colMax, rowMax, x0, y0, 4);
 
-    float f[3], g1, g2, current;
+    float f[5], g1, g2;
 
     for (int row = rowMin; row < rowMax; row++)
         for (int col = colMin + (FC(y0 - TILEBORDER + row, x0 - TILEBORDER + colMin) & 1), indx = row * CACHESIZE + col, c = FC(y0 - TILEBORDER + row, x0 - TILEBORDER + col); col < colMax; col += 2, indx += 2) {
- 
-			float current = 4.f * image[indx][3] +
+            float current = 4.f * image[indx][3] +
                             2.f * (image[indx + u][3] + image[indx - u][3] + image[indx + 1][3] + image[indx - 1][3])
                             + image[indx + v][3] + image[indx - v][3] + image[indx - 2][3] + image[indx + 2][3];
- 
-			f[0] = (float)(image[indx - u][1] + image[indx + u][1]) / (1.f + 2.f * image[indx][c]);
-            f[1] = 2.f * image[indx - u][1] / (1.f + image[indx - v][c] + image[indx][c]);
-            f[2] = 2.f * image[indx + u][1] / (1.f + image[indx + v][c] + image[indx][c]);
 
-			g1 = (f[0] + f[1] + f[2])/3.0;
+            f[0] = (float)(image[indx - u][1] + image[indx + u][1]) / (2.f + 2.f * image[indx][c]);
+            f[1] = 2.f * image[indx - u][1] / (2 + image[indx - v][c] + image[indx][c]);
+            f[2] = (float)(image[indx - u][1] + image[indx - w][1]) / (2.f + 2.f * image[indx - v][c]);
+            f[3] = 2.f * image[indx + u][1] / (2 + image[indx + v][c] + image[indx][c]);
+            f[4] = (float)(image[indx + u][1] + image[indx + w][1]) / (2.f + 2.f * image[indx + v][c]);
 
-			f[0] = (float)(image[indx - 1][1] + image[indx + 1][1]) / (1.f + 2.f * image[indx][c]);
-            f[1] = 2.f * image[indx - 1][1] / (1.f + image[indx - 2][c] + image[indx][c]);
-            f[2] = 2.f * image[indx + 1][1] / (1.f + image[indx + 2][c] + image[indx][c]);
+            g1 = (f[0] + f[1] + f[2] + f[3] + f[4] - max(f[1], f[2], f[3], f[4]) - min(f[1], f[2], f[3], f[4])) / 3.f;
 
-			g2 = (f[0] + f[1] + f[2])/3.0;
-		
-			// new green value
+            f[0] = (float)(image[indx - 1][1] + image[indx + 1][1]) / (2.f + 2.f * image[indx][c]);
+            f[1] = 2.f * image[indx - 1][1] / (2 + image[indx - 2][c] + image[indx][c]);
+            f[2] = (float)(image[indx - 1][1] + image[indx - 3][1]) / (2.f + 2.f * image[indx - 2][c]);
+            f[3] = 2.f * image[indx + 1][1] / (2 + image[indx + 2][c] + image[indx][c]);
+            f[4] = (float)(image[indx + 1][1] + image[indx + 3][1]) / (2.f + 2.f * image[indx + 2][c]);
+
+            g2 = (f[0] + f[1] + f[2] + f[3] + f[4] - max(f[1], f[2], f[3], f[4]) - min(f[1], f[2], f[3], f[4])) / 3.f;
+
             assert(indx >= 0 && indx < u * u);
-            image[indx][1] = image[indx][c] * (current * g1 + (16.f - current) * g2) * 0.0625f;
+            image[indx][1] = (2.f + image[indx][c]) * (current * g1 + (16.f - current) * g2) * 0.0625f;
 
             // get rid of the overshooted pixels
-			g1 = min(image[indx - 1][1], min(image[indx + 1][1], min(image[indx - u][1], image[indx + u][1])));
-			g2 = max(image[indx - 1][1], max(image[indx + 1][1], max(image[indx - u][1], image[indx + u][1])));
+            float min_f = min(image[indx + 1 + u][1], min(image[indx + 1 - u][1], min(image[indx - 1 + u][1], min(image[indx - 1 - u][1], min(image[indx - 1][1], min(image[indx + 1][1], min(image[indx - u][1], image[indx + u][1])))))));
+            float max_f = max(image[indx + 1 + u][1], max(image[indx + 1 - u][1], max(image[indx - 1 + u][1], max(image[indx - 1 - u][1], max(image[indx - 1][1], max(image[indx + 1][1], max(image[indx - u][1], image[indx + u][1])))))));
 
-			image[indx][1] =  LIM(image[indx][1], g1, g2);
-
+            image[indx][1] =  LIM(image[indx][1], min_f, max_f);
         }
 }
 
@@ -3641,7 +3672,7 @@ void RawImageSource::dcb_color_full(float (*image)[4], int x0, int y0, float (*c
         }
 }
 
-// DCB demosaicing main routine 
+// DCB demosaicing main routine (sharp version)
 void RawImageSource::dcb_demosaic(int iterations, bool dcb_enhance)
 {
     double currentProgress = 0.0;
@@ -3689,18 +3720,14 @@ void RawImageSource::dcb_demosaic(int iterations, bool dcb_enhance)
 #ifdef _OPENMP
         int tid = omp_get_thread_num();
         assert(tid < nthreads);
-float (*tile)[4]   = image[tid];
+        float (*tile)[4]   = image[tid];
         float (*buffer)[3] = image2[tid];
-       float (*buffer2)[3] = image3[tid];
+        float (*buffer2)[3] = image3[tid];
         float  (*chrm)[2]   = chroma[tid];
-        memset(tile, 0, CACHESIZE * CACHESIZE * sizeof * tile);
-        memset(buffer, 0, CACHESIZE * CACHESIZE * sizeof * buffer);
-       memset(buffer2, 0, CACHESIZE * CACHESIZE * sizeof * buffer2);
-        memset(chrm, 0, CACHESIZE * CACHESIZE * sizeof * chrm);
 #else
         float (*tile)[4]   = image;
         float (*buffer)[3] = image2;
-       float (*buffer2)[3] = image3;
+        float (*buffer2)[3] = image3;
         float  (*chrm)[2]   = chroma;
 #endif
 
@@ -3710,43 +3737,7 @@ float (*tile)[4]   = image[tid];
             fill_border(tile, 6, x0, y0);
         }
 
-        copy_to_buffer(buffer, tile);		
         dcb_hid(tile, buffer, buffer2, x0, y0);
-        dcb_color(tile, x0, y0);
-
-        for (int i = iterations; i > 0; i--) {
-            dcb_hid2(tile, x0, y0);
-            dcb_hid2(tile, x0, y0);
-            dcb_hid2(tile, x0, y0);
-            dcb_map(tile, x0, y0);
-            dcb_correction(tile, x0, y0);
-        }
-
-        dcb_color(tile, x0, y0);
-        dcb_pp(tile, x0, y0);
-        dcb_map(tile, x0, y0);
-        dcb_correction2(tile, x0, y0);
-        dcb_map(tile, x0, y0);
-        dcb_correction(tile, x0, y0);
-        dcb_color(tile, x0, y0);
-        dcb_map(tile, x0, y0);
-        dcb_correction(tile, x0, y0);
-        dcb_map(tile, x0, y0);
-        dcb_correction(tile, x0, y0);
-        dcb_map(tile, x0, y0);
-        restore_from_buffer(tile, buffer);
-        dcb_color_full(tile, x0, y0, chrm);
-
-		if (dcb_enhance) {
-            dcb_refinement(tile, x0, y0);
-            dcb_color_full(tile, x0, y0, chrm);
-         }		
-		
-		
- /*
-        dcb_hid(tile, buffer, buffer2, x0, y0);
-		dcb_color(tile, x0, y0);
-		
         copy_to_buffer(buffer, tile);
 
         for (int i = iterations; i > 0; i--) {
@@ -3770,13 +3761,13 @@ float (*tile)[4]   = image[tid];
         dcb_correction(tile, x0, y0);
         dcb_map(tile, x0, y0);
         restore_from_buffer(tile, buffer);
-        dcb_color_full(tile, x0, y0, chrm);
+        dcb_color(tile, x0, y0);
 
-		if (dcb_enhance) {
+        if (dcb_enhance) {
             dcb_refinement(tile, x0, y0);
             dcb_color_full(tile, x0, y0, chrm);
-         }
-*/
+        }
+
         for(int y = 0; y < TILESIZE && y0 + y < H; y++) {
             for (int j = 0; j < TILESIZE && x0 + j < W; j++) {
                 red[y0 + y][x0 + j]   = tile[(y + TILEBORDER) * CACHESIZE + TILEBORDER + j][0];

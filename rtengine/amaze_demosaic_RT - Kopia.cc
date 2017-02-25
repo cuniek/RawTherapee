@@ -858,9 +858,8 @@ SSEFUNCTION void RawImageSource::amaze_demosaic_RT(int winx, int winy, int winw,
                 }
 
 
-//                bool doNyquist = nystartrow != nyendrow && nystartcol != nyendcol;
-				bool doNyquist = (nystartrow != nyendrow && nystartcol != nyendcol) && !AmazeExp0;
-				
+                bool doNyquist = nystartrow != nyendrow && nystartcol != nyendcol;
+
                 if(doNyquist) {
                     nyendrow ++; // because of < condition
                     nyendcol ++; // because of < condition

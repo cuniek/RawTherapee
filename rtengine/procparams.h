@@ -1198,6 +1198,7 @@ public:
         Glib::ustring method;
         int imageNum;
         int ccSteps;
+        bool amazeExp0;
         double black0;
         double black1;
         double black2;

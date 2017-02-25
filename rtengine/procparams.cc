@@ -910,6 +910,7 @@ void RAWParams::setDefaults()
     bayersensor.method = RAWParams::BayerSensor::methodstring[RAWParams::BayerSensor::amaze];
     bayersensor.imageNum = 0;
     bayersensor.ccSteps = 0;
+    bayersensor.amazeExp0 = false;
     bayersensor.dcb_iterations = 2;
     bayersensor.dcb_enhance = true;
     //bayersensor.all_enhance = false;
@@ -3355,6 +3356,10 @@ int ProcParams::save (const Glib::ustring &fname, const Glib::ustring &fname2, b
 
         if (!pedited || pedited->raw.bayersensor.ccSteps) {
             keyFile.set_integer ("RAW Bayer", "CcSteps", raw.bayersensor.ccSteps);
+        }
+
+        if (!pedited || pedited->raw.bayersensor.amazeExp0) {
+            keyFile.set_boolean ("RAW Bayer", "amazeExp0", raw.bayersensor.amazeExp0);
         }
 
         if (!pedited || pedited->raw.bayersensor.exBlack0) {
@@ -7375,6 +7380,14 @@ int ProcParams::load (const Glib::ustring &fname, ParamsEdited* pedited)
                     }
                 }
 
+                if (keyFile.has_key ("RAW", "amazeExp0"))          {
+                    raw.bayersensor.amazeExp0  = keyFile.get_boolean ("RAW", "amazeExp0");
+
+                    if (pedited) {
+                        pedited->raw.bayersensor.amazeExp0 = true;
+                    }
+                }
+
                 if (keyFile.has_key ("RAW", "LineDenoise"))      {
                     raw.bayersensor.linenoise = keyFile.get_integer ("RAW", "LineDenoise" );
 
@@ -7482,6 +7495,14 @@ int ProcParams::load (const Glib::ustring &fname, ParamsEdited* pedited)
 
                 if (pedited) {
                     pedited->raw.bayersensor.ccSteps = true;
+                }
+            }
+
+            if (keyFile.has_key ("RAW Bayer", "amazeExp0"))          {
+                raw.bayersensor.amazeExp0  = keyFile.get_boolean ("RAW Bayer", "amazeExp0");
+
+                if (pedited) {
+                    pedited->raw.bayersensor.amazeExp0 = true;
                 }
             }
 
@@ -8217,6 +8238,7 @@ bool ProcParams::operator== (const ProcParams& other)
         && raw.bayersensor.method == other.raw.bayersensor.method
         && raw.bayersensor.imageNum == other.raw.bayersensor.imageNum
         && raw.bayersensor.ccSteps == other.raw.bayersensor.ccSteps
+        && raw.bayersensor.amazeExp0 == other.raw.bayersensor.amazeExp0
         && raw.bayersensor.black0 == other.raw.bayersensor.black0
         && raw.bayersensor.black1 == other.raw.bayersensor.black1
         && raw.bayersensor.black2 == other.raw.bayersensor.black2
